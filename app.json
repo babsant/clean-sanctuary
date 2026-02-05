@@ -1,15 +1,20 @@
 {
   "expo": {
-    "name": "adhd-cleaning-expo",
-    "slug": "adhd-cleaning-expo",
+    "name": "Clean Sanctuary",
+    "slug": "clean-sanctuary",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "adhdcleaningexpo",
+    "scheme": "cleansanctuary",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cleansanctuary.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -43,6 +48,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "230ad0f2-ff11-48e7-878f-4a802ff00d02"
+      }
     }
   }
 }
