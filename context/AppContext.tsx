@@ -11,7 +11,7 @@ import {
   defaultUserProfile,
   generateDefaultNamedRooms,
 } from '@/models/types';
-import { storageService, CompletedQuests, QuestProgress, CleaningHistory } from '@/services/storage';
+import { storageService, CompletedQuests, QuestProgress, CleaningHistory, PausedQuestData } from '@/services/storage';
 import { contributePoints } from '@/services/community';
 
 // MARK: - State Types
@@ -24,10 +24,12 @@ interface AppState {
   activeRoomId: string | null; // Which specific room is being cleaned
   currentQuestStep: number;
   questStartTime: string | null;
+  stepStartTime: string | null; // When current step started (for pause detection)
   lastEarnedPoints: number;
   completedQuests: CompletedQuests;
   cleaningHistory: CleaningHistory;
   accountCreatedDate: string | null;
+  pausedQuest: PausedQuestData | null; // Quest that was paused mid-progress
 }
 
 type AppAction =
@@ -35,10 +37,13 @@ type AppAction =
   | { type: 'SET_USER_PROFILE'; payload: UserProfile }
   | { type: 'UPDATE_USER_PROFILE'; payload: Partial<UserProfile> }
   | { type: 'COMPLETE_ONBOARDING' }
-  | { type: 'START_QUEST'; payload: { quest: Quest; startTime: string; roomId?: string } }
-  | { type: 'ADVANCE_QUEST_STEP' }
+  | { type: 'START_QUEST'; payload: { quest: Quest; startTime: string; stepStartTime: string; roomId?: string } }
+  | { type: 'ADVANCE_QUEST_STEP'; payload: { stepStartTime: string } }
   | { type: 'COMPLETE_QUEST'; payload: number }
   | { type: 'SKIP_QUEST' }
+  | { type: 'PAUSE_QUEST' }
+  | { type: 'SET_PAUSED_QUEST'; payload: PausedQuestData | null }
+  | { type: 'RESUME_QUEST'; payload: { quest: Quest; stepIndex: number; questStartTime: string; stepStartTime: string; roomId?: string } }
   | { type: 'SET_COMPLETED_QUESTS'; payload: CompletedQuests }
   | { type: 'ADD_COMPLETED_QUEST'; payload: { questId: string; date: string } }
   | { type: 'SET_CLEANING_HISTORY'; payload: CleaningHistory }
@@ -56,10 +61,12 @@ const initialState: AppState = {
   activeRoomId: null,
   currentQuestStep: 0,
   questStartTime: null,
+  stepStartTime: null,
   lastEarnedPoints: 0,
   completedQuests: {},
   cleaningHistory: [],
   accountCreatedDate: null,
+  pausedQuest: null,
 };
 
 // MARK: - Reducer
@@ -98,12 +105,41 @@ function appReducer(state: AppState, action: AppAction): AppState {
         activeRoomId: action.payload.roomId || null,
         currentQuestStep: 0,
         questStartTime: action.payload.startTime,
+        stepStartTime: action.payload.stepStartTime,
       };
 
     case 'ADVANCE_QUEST_STEP':
       return {
         ...state,
         currentQuestStep: state.currentQuestStep + 1,
+        stepStartTime: action.payload.stepStartTime,
+      };
+
+    case 'PAUSE_QUEST':
+      return {
+        ...state,
+        activeQuest: null,
+        activeRoomId: null,
+        currentQuestStep: 0,
+        questStartTime: null,
+        stepStartTime: null,
+      };
+
+    case 'SET_PAUSED_QUEST':
+      return {
+        ...state,
+        pausedQuest: action.payload,
+      };
+
+    case 'RESUME_QUEST':
+      return {
+        ...state,
+        activeQuest: action.payload.quest,
+        activeRoomId: action.payload.roomId || null,
+        currentQuestStep: action.payload.stepIndex,
+        questStartTime: action.payload.questStartTime,
+        stepStartTime: action.payload.stepStartTime,
+        pausedQuest: null,
       };
 
     case 'COMPLETE_QUEST':
@@ -181,6 +217,9 @@ interface AppContextType extends AppState {
   advanceQuestStep: () => Promise<void>;
   completeQuest: () => Promise<number>;
   skipQuest: () => Promise<void>;
+  pauseQuest: () => Promise<void>;
+  resumeQuest: () => Promise<void>;
+  dismissPausedQuest: () => Promise<void>;
 
   // Data Actions
   resetAllData: () => Promise<void>;
@@ -232,11 +271,13 @@ export function AppProvider({ children }: AppProviderProps) {
         const completedQuests = await storageService.loadCompletedQuests();
         const cleaningHistory = await storageService.loadCleaningHistory();
         const accountDate = await storageService.getOrCreateAccountDate();
+        const pausedQuest = await storageService.loadPausedQuest();
 
         dispatch({ type: 'SET_USER_PROFILE', payload: profile });
         dispatch({ type: 'SET_COMPLETED_QUESTS', payload: completedQuests });
         dispatch({ type: 'SET_CLEANING_HISTORY', payload: cleaningHistory });
         dispatch({ type: 'SET_ACCOUNT_DATE', payload: accountDate });
+        dispatch({ type: 'SET_PAUSED_QUEST', payload: pausedQuest });
       } catch (error) {
         console.error('Failed to load app data:', error);
       } finally {
@@ -265,7 +306,7 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const startQuest = async (quest: Quest, roomId?: string) => {
     const startTime = new Date().toISOString();
-    dispatch({ type: 'START_QUEST', payload: { quest, startTime, roomId } });
+    dispatch({ type: 'START_QUEST', payload: { quest, startTime, stepStartTime: startTime, roomId } });
 
     const progress: QuestProgress = {
       questId: quest.id,
@@ -279,12 +320,13 @@ export function AppProvider({ children }: AppProviderProps) {
     if (!state.activeQuest) return;
 
     if (state.currentQuestStep < state.activeQuest.steps.length - 1) {
-      dispatch({ type: 'ADVANCE_QUEST_STEP' });
+      const stepStartTime = new Date().toISOString();
+      dispatch({ type: 'ADVANCE_QUEST_STEP', payload: { stepStartTime } });
 
       const progress: QuestProgress = {
         questId: state.activeQuest.id,
         currentStepIndex: state.currentQuestStep + 1,
-        startedAt: new Date().toISOString(),
+        startedAt: stepStartTime,
       };
       await storageService.saveQuestProgress(progress);
     }
@@ -405,6 +447,51 @@ export function AppProvider({ children }: AppProviderProps) {
     await storageService.clearQuestProgress();
   };
 
+  const pauseQuest = async () => {
+    if (!state.activeQuest || !state.questStartTime || !state.stepStartTime) return;
+
+    const pausedData: PausedQuestData = {
+      quest: state.activeQuest,
+      currentStepIndex: state.currentQuestStep,
+      roomId: state.activeRoomId || undefined,
+      pausedAt: new Date().toISOString(),
+      stepStartedAt: state.stepStartTime,
+      questStartTime: state.questStartTime,
+    };
+
+    await storageService.savePausedQuest(pausedData);
+    await storageService.clearQuestProgress();
+
+    dispatch({ type: 'SET_PAUSED_QUEST', payload: pausedData });
+    dispatch({ type: 'PAUSE_QUEST' });
+  };
+
+  const resumeQuest = async () => {
+    if (!state.pausedQuest) return;
+
+    const { quest, currentStepIndex, roomId, questStartTime } = state.pausedQuest;
+    const stepStartTime = new Date().toISOString();
+
+    dispatch({
+      type: 'RESUME_QUEST',
+      payload: { quest, stepIndex: currentStepIndex, questStartTime, stepStartTime, roomId },
+    });
+
+    // Save quest progress
+    const progress: QuestProgress = {
+      questId: quest.id,
+      currentStepIndex,
+      startedAt: stepStartTime,
+    };
+    await storageService.saveQuestProgress(progress);
+    await storageService.clearPausedQuest();
+  };
+
+  const dismissPausedQuest = async () => {
+    await storageService.clearPausedQuest();
+    dispatch({ type: 'SET_PAUSED_QUEST', payload: null });
+  };
+
   // MARK: - Data Actions
 
   const resetAllData = async () => {
@@ -420,6 +507,9 @@ export function AppProvider({ children }: AppProviderProps) {
     advanceQuestStep,
     completeQuest,
     skipQuest,
+    pauseQuest,
+    resumeQuest,
+    dismissPausedQuest,
     resetAllData,
   };
 

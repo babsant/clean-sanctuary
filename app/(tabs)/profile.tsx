@@ -17,6 +17,7 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { Colors, Typography, Spacing, formatNumber } from '@/constants/theme';
 import { Card } from '@/components/ui';
 import { PrimaryButton } from '@/components/ui';
@@ -599,6 +600,11 @@ export default function ProfileScreen() {
           All your personal data is stored locally on your device and is never uploaded to our servers.
           Only anonymous contribution data is shared with the community bonfire.
         </Text>
+
+        <Text style={styles.madeInCanada}>Made in Canada with love</Text>
+        <Text style={styles.versionText}>
+          v{Constants.expoConfig?.version} ({Constants.expoConfig?.ios?.buildNumber || '1'})
+        </Text>
       </View>
     </ScrollView>
   );
@@ -733,6 +739,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     paddingHorizontal: Spacing.md,
+  },
+  madeInCanada: {
+    ...Typography.caption,
+    color: Colors.textTertiary,
+    textAlign: 'center',
+    marginTop: Spacing.lg,
+  },
+  versionText: {
+    ...Typography.caption,
+    color: Colors.textTertiary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
   },
   activityHeader: {
     flexDirection: 'row',

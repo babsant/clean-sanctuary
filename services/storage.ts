@@ -4,7 +4,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { UserProfile, defaultUserProfile } from '@/models/types';
+import { UserProfile, defaultUserProfile, Quest } from '@/models/types';
 
 // Storage Keys
 const KEYS = {
@@ -15,6 +15,7 @@ const KEYS = {
   ANONYMOUS_ID: 'anonymousId',
   CLEANING_HISTORY: 'cleaningHistory',
   ACCOUNT_CREATED: 'accountCreated',
+  PAUSED_QUEST: 'pausedQuest',
 };
 
 // Quest Progress Type
@@ -38,6 +39,16 @@ export interface CleaningSession {
 
 // Cleaning History - array of all cleaning sessions
 export type CleaningHistory = CleaningSession[];
+
+// Paused Quest - tracks quest progress when user pauses mid-quest
+export interface PausedQuestData {
+  quest: Quest;
+  currentStepIndex: number;
+  roomId?: string;
+  pausedAt: string;       // ISO timestamp when quest was paused
+  stepStartedAt: string;  // ISO timestamp when current step began
+  questStartTime: string; // Original quest start time
+}
 
 class StorageService {
   // MARK: - User Profile
@@ -126,6 +137,46 @@ class StorageService {
       await AsyncStorage.removeItem(KEYS.QUEST_PROGRESS);
     } catch (error) {
       console.error('Failed to clear quest progress:', error);
+    }
+  }
+
+  // MARK: - Paused Quest
+
+  async savePausedQuest(data: PausedQuestData): Promise<void> {
+    try {
+      await AsyncStorage.setItem(KEYS.PAUSED_QUEST, JSON.stringify(data));
+    } catch (error) {
+      console.error('Failed to save paused quest:', error);
+    }
+  }
+
+  async loadPausedQuest(): Promise<PausedQuestData | null> {
+    try {
+      const data = await AsyncStorage.getItem(KEYS.PAUSED_QUEST);
+      if (data) {
+        const parsed = JSON.parse(data) as PausedQuestData;
+        // Check if paused quest has expired (8 hours)
+        const pausedAt = new Date(parsed.pausedAt);
+        const now = new Date();
+        const hoursElapsed = (now.getTime() - pausedAt.getTime()) / (1000 * 60 * 60);
+        if (hoursElapsed >= 8) {
+          // Quest expired, clear it
+          await this.clearPausedQuest();
+          return null;
+        }
+        return parsed;
+      }
+    } catch (error) {
+      console.error('Failed to load paused quest:', error);
+    }
+    return null;
+  }
+
+  async clearPausedQuest(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(KEYS.PAUSED_QUEST);
+    } catch (error) {
+      console.error('Failed to clear paused quest:', error);
     }
   }
 

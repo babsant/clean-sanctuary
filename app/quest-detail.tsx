@@ -3,7 +3,7 @@
  * Step-by-step quest execution view.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -30,14 +30,19 @@ export default function QuestDetailScreen() {
   const {
     activeQuest,
     currentQuestStep,
+    stepStartTime,
     advanceQuestStep,
     completeQuest,
     skipQuest,
+    pauseQuest,
   } = useApp();
 
   const [showCompletion, setShowCompletion] = useState(false);
   const [earnedPoints, setEarnedPoints] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [stepElapsedMinutes, setStepElapsedMinutes] = useState(0);
+  const [showPausePrompt, setShowPausePrompt] = useState(false);
+  const pausePromptShownRef = useRef(false);
 
   // Animation values
   const checkOpacity = useSharedValue(0);
@@ -66,6 +71,37 @@ export default function QuestDetailScreen() {
       router.replace('/');
     }
   }, [activeQuest]);
+
+  // Track time spent on current step
+  useEffect(() => {
+    if (!stepStartTime || !activeQuest) return;
+
+    // Reset pause prompt flag when step changes
+    pausePromptShownRef.current = false;
+    setShowPausePrompt(false);
+
+    const updateTimer = () => {
+      const startTime = new Date(stepStartTime);
+      const now = new Date();
+      const elapsedMs = now.getTime() - startTime.getTime();
+      const minutes = Math.floor(elapsedMs / (1000 * 60));
+      setStepElapsedMinutes(minutes);
+
+      // Show pause prompt after 10 minutes on a single step (only once)
+      if (minutes >= 10 && !pausePromptShownRef.current) {
+        pausePromptShownRef.current = true;
+        setShowPausePrompt(true);
+      }
+    };
+
+    // Initial update
+    updateTimer();
+
+    // Update every 30 seconds
+    const interval = setInterval(updateTimer, 30000);
+
+    return () => clearInterval(interval);
+  }, [stepStartTime, activeQuest, currentQuestStep]);
 
   // Show loading state while redirecting
   if (!activeQuest) {
@@ -158,6 +194,16 @@ export default function QuestDetailScreen() {
     router.replace('/');
   };
 
+  const handlePause = async () => {
+    Haptics.selectionAsync();
+    await pauseQuest();
+    router.replace('/');
+  };
+
+  const handleDismissPausePrompt = () => {
+    setShowPausePrompt(false);
+  };
+
   if (showCompletion) {
     return (
       <SafeAreaView style={styles.container}>
@@ -216,9 +262,16 @@ export default function QuestDetailScreen() {
           total={quest.steps.length}
           current={currentQuestStep + 1}
         />
-        <Text style={styles.stepIndicator}>
-          Step {currentQuestStep + 1} of {quest.steps.length}
-        </Text>
+        <View style={styles.stepInfo}>
+          <Text style={styles.stepIndicator}>
+            Step {currentQuestStep + 1} of {quest.steps.length}
+          </Text>
+          {stepElapsedMinutes > 0 && (
+            <Text style={[styles.stepTimer, stepElapsedMinutes >= 10 && styles.stepTimerWarning]}>
+              {stepElapsedMinutes} min
+            </Text>
+          )}
+        </View>
       </View>
 
       {/* Current Step */}
@@ -251,6 +304,26 @@ export default function QuestDetailScreen() {
         </Animated.View>
       </View>
 
+      {/* Pause Prompt */}
+      {showPausePrompt && (
+        <View style={styles.pausePrompt}>
+          <View style={styles.pausePromptContent}>
+            <Text style={styles.pausePromptTitle}>Taking a while?</Text>
+            <Text style={styles.pausePromptText}>
+              This step is taking longer than expected. Would you like to pause and come back later?
+            </Text>
+            <View style={styles.pausePromptActions}>
+              <Pressable style={styles.pausePromptButton} onPress={handlePause}>
+                <Text style={styles.pausePromptButtonText}>Pause Quest</Text>
+              </Pressable>
+              <Pressable style={styles.pausePromptDismiss} onPress={handleDismissPausePrompt}>
+                <Text style={styles.pausePromptDismissText}>Keep Going</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Actions */}
       <View style={styles.actions}>
         <PrimaryButton
@@ -261,6 +334,10 @@ export default function QuestDetailScreen() {
         <View style={styles.secondaryActions}>
           <Pressable onPress={handleSkipStep}>
             <Text style={styles.secondaryActionText}>Skip Step</Text>
+          </Pressable>
+          <Text style={styles.actionDivider}>•</Text>
+          <Pressable onPress={handlePause}>
+            <Text style={styles.secondaryActionText}>Pause Quest</Text>
           </Pressable>
           <Text style={styles.actionDivider}>•</Text>
           <Pressable onPress={handleExit}>
@@ -300,11 +377,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.screenHorizontal,
     paddingVertical: Spacing.md,
   },
+  stepInfo: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
   stepIndicator: {
     ...Typography.caption,
     color: Colors.textSecondary,
     textAlign: 'center',
-    marginTop: Spacing.sm,
+  },
+  stepTimer: {
+    ...Typography.caption,
+    color: Colors.textTertiary,
+  },
+  stepTimerWarning: {
+    color: Colors.accent,
+    fontWeight: '600',
   },
   stepContent: {
     flex: 1,
@@ -366,6 +457,69 @@ const styles = StyleSheet.create({
   },
   actionDivider: {
     color: Colors.textTertiary,
+  },
+  // Pause prompt styles
+  pausePrompt: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: Spacing.screenHorizontal,
+    paddingTop: 100,
+    zIndex: 10,
+  },
+  pausePromptContent: {
+    backgroundColor: Colors.cardBackground,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    padding: Spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  pausePromptTitle: {
+    ...Typography.headline,
+    color: Colors.text,
+    marginBottom: Spacing.xs,
+  },
+  pausePromptText: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+    marginBottom: Spacing.md,
+  },
+  pausePromptActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  pausePromptButton: {
+    flex: 1,
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  pausePromptButtonText: {
+    ...Typography.subheadline,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  pausePromptDismiss: {
+    flex: 1,
+    backgroundColor: Colors.cardBorder,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  pausePromptDismissText: {
+    ...Typography.subheadline,
+    color: Colors.textSecondary,
+    fontWeight: '500',
   },
   // Completion styles
   completionContainer: {

@@ -232,6 +232,7 @@ function WelcomeStep({ onContinue }: WelcomeStepProps) {
         </Text>
       </View>
       <PrimaryButton title="Let's Begin" onPress={onContinue} />
+      <Text style={styles.madeInCanada}>Made in Canada with love</Text>
     </View>
   );
 }
@@ -565,6 +566,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
+  },
+  madeInCanada: {
+    ...Typography.caption,
+    color: Colors.textTertiary,
+    textAlign: 'center',
+    marginTop: Spacing.xl,
   },
   stepTitle: {
     ...Typography.title2,

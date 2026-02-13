@@ -22,7 +22,7 @@ import { Quest, NamedRoom, generateDefaultNamedRooms, namedRoomIcons } from '@/m
 import { recommendationEngine } from '@/services/recommendations';
 
 export default function HomeScreen() {
-  const { userProfile, completedQuests, startQuest } = useApp();
+  const { userProfile, completedQuests, startQuest, pausedQuest, resumeQuest } = useApp();
   const [recommendedQuest, setRecommendedQuest] = useState<Quest | null>(null);
   const [quickWinQuest, setQuickWinQuest] = useState<Quest | null>(null);
   const [isCatchUp, setIsCatchUp] = useState(false);
@@ -31,6 +31,9 @@ export default function HomeScreen() {
   // Room selection modal state
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [pendingQuest, setPendingQuest] = useState<Quest | null>(null);
+
+  // Paused quest banner state (can be dismissed temporarily)
+  const [pausedBannerDismissed, setPausedBannerDismissed] = useState(false);
 
   useEffect(() => {
     loadRecommendations();
@@ -125,6 +128,21 @@ export default function HomeScreen() {
     }
   };
 
+  const handleResumePausedQuest = async () => {
+    await resumeQuest();
+    router.push('/quest-detail');
+  };
+
+  const handleDismissPausedBanner = () => {
+    // Temporarily dismiss the banner for this session
+    setPausedBannerDismissed(true);
+  };
+
+  // Reset dismissed state when pausedQuest changes (e.g., new pause or cleared)
+  useEffect(() => {
+    setPausedBannerDismissed(false);
+  }, [pausedQuest?.pausedAt]);
+
   const getDaysAgo = (dateString?: string): number => {
     if (!dateString) return Infinity;
     const date = new Date(dateString);
@@ -178,6 +196,29 @@ export default function HomeScreen() {
         <View style={styles.greeting}>
           <Text style={styles.greetingText}>{getGreeting()}</Text>
         </View>
+
+        {/* Paused Quest Banner */}
+        {pausedQuest && !pausedBannerDismissed && (
+          <View style={styles.pausedQuestBanner}>
+            <View style={styles.pausedQuestHeader}>
+              <Ionicons name="pause-circle-outline" size={24} color={Colors.accent} />
+              <Text style={styles.pausedQuestLabel}>Task waiting to be finished</Text>
+            </View>
+            <Text style={styles.pausedQuestTitle}>{pausedQuest.quest.title}</Text>
+            <Text style={styles.pausedQuestStep}>
+              Step {pausedQuest.currentStepIndex + 1} of {pausedQuest.quest.steps.length}
+            </Text>
+            <Text style={styles.pausedQuestPrompt}>Would you like to finish?</Text>
+            <View style={styles.pausedQuestActions}>
+              <Pressable style={styles.pausedQuestContinue} onPress={handleResumePausedQuest}>
+                <Text style={styles.pausedQuestContinueText}>Continue</Text>
+              </Pressable>
+              <Pressable style={styles.pausedQuestPause} onPress={handleDismissPausedBanner}>
+                <Text style={styles.pausedQuestPauseText}>Keep paused</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
 
         {/* Today Complete Banner */}
         {todayComplete && (
@@ -386,6 +427,74 @@ const styles = StyleSheet.create({
   greetingText: {
     ...Typography.title2,
     color: Colors.text,
+  },
+  // Paused Quest Banner styles
+  pausedQuestBanner: {
+    backgroundColor: Colors.accentLight + '15',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    padding: Spacing.md,
+  },
+  pausedQuestHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  pausedQuestLabel: {
+    ...Typography.caption,
+    color: Colors.accent,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  pausedQuestTitle: {
+    ...Typography.headline,
+    color: Colors.text,
+    marginBottom: Spacing.xxs,
+  },
+  pausedQuestStep: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  pausedQuestPrompt: {
+    ...Typography.body,
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  pausedQuestActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  pausedQuestContinue: {
+    flex: 1,
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  pausedQuestContinueText: {
+    ...Typography.subheadline,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  pausedQuestPause: {
+    flex: 1,
+    backgroundColor: Colors.cardBackground,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  pausedQuestPauseText: {
+    ...Typography.subheadline,
+    color: Colors.textSecondary,
+    fontWeight: '500',
   },
   completeBanner: {
     alignItems: 'center',
